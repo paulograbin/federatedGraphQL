@@ -1,10 +1,10 @@
 type Query {
-    shows: [Show]
+    shows: [Show!]!
     show(id: ID!): Show
 }
 
 type Show @key(fields: "id") {
     id: ID!
-    title: String
-    releaseYear: Int
+    title: String!
+    releaseYear: Int!
 }
