@@ -1,0 +1,46 @@
+package com.example.reviews;
+
+import com.netflix.graphql.dgs.DgsComponent;
+import com.netflix.graphql.dgs.DgsData;
+import com.netflix.graphql.dgs.DgsEntityFetcher;
+import com.netflix.graphql.dgs.DgsDataFetchingEnvironment;
+
+import java.util.List;
+import java.util.Map;
+
+@DgsComponent
+public class ReviewsDataFetcher {
+
+    private static final Map<String, List<Review>> REVIEWS_BY_SHOW = Map.of(
+            "1", List.of(
+                    new Review("r1", 5, "Absolutely loved it!"),
+                    new Review("r2", 4, "Great show, binge-worthy")
+            ),
+            "2", List.of(
+                    new Review("r3", 5, "Brilliant performances"),
+                    new Review("r4", 4, "Well written and acted")
+            ),
+            "3", List.of(
+                    new Review("r5", 4, "Dark and intense")
+            ),
+            "4", List.of(
+                    new Review("r6", 3, "Good but could be better"),
+                    new Review("r7", 4, "Loved the world-building")
+            ),
+            "5", List.of(
+                    new Review("r8", 5, "Tim Burton at his best"),
+                    new Review("r9", 4, "Fun and quirky")
+            )
+    );
+
+    @DgsEntityFetcher(name = "Show")
+    public Show showEntity(Map<String, Object> values) {
+        return new Show((String) values.get("id"));
+    }
+
+    @DgsData(parentType = "Show", field = "reviews")
+    public List<Review> reviews(DgsDataFetchingEnvironment dfe) {
+        Show show = dfe.getSource();
+        return REVIEWS_BY_SHOW.getOrDefault(show.getId(), List.of());
+    }
+}

@@ -1,0 +1,10 @@
+type Query {
+    shows: [Show]
+    show(id: ID!): Show
+}
+
+type Show @key(fields: "id") {
+    id: ID!
+    title: String
+    releaseYear: Int
+}
