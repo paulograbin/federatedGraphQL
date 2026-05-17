@@ -1,8 +1,8 @@
-FROM eclipse-temurin:25-jdk AS build
+FROM maven:3-eclipse-temurin-25 AS build
 WORKDIR /app
 COPY pom.xml .
 COPY src ./src
-RUN apt-get update && apt-get install -y maven && mvn package -DskipTests -q
+RUN mvn package -DskipTests -q
 
 FROM eclipse-temurin:25-jre
 WORKDIR /app
