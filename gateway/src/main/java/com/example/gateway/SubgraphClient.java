@@ -42,7 +42,7 @@ public class SubgraphClient {
     public SubgraphClient() {
         CircuitBreakerConfig cbConfig = CircuitBreakerConfig.custom()
                 .failureRateThreshold(50)
-                .waitDurationInOpenState(Duration.ofSeconds(30))
+                .waitDurationInOpenState(Duration.ofSeconds(10))
                 .slidingWindowSize(10)
                 .minimumNumberOfCalls(5)
                 .permittedNumberOfCallsInHalfOpenState(3)
@@ -60,14 +60,11 @@ public class SubgraphClient {
 
     public JsonNode execute(String url, String query, Map<String, Object> variables) {
         String subgraphName = extractSubgraphName(url);
-        CircuitBreaker cb = circuitBreakers.computeIfAbsent(subgraphName,
-                name -> circuitBreakerRegistry.circuitBreaker(name));
-        Retry retry = retries.computeIfAbsent(subgraphName,
-                name -> retryRegistry.retry(name));
+        CircuitBreaker cb = circuitBreakers.computeIfAbsent(subgraphName, circuitBreakerRegistry::circuitBreaker);
+        Retry retry = retries.computeIfAbsent(subgraphName, retryRegistry::retry);
 
         Supplier<JsonNode> call = () -> doExecute(url, query, variables);
-        Supplier<JsonNode> resilientCall = CircuitBreaker.decorateSupplier(cb,
-                Retry.decorateSupplier(retry, call));
+        Supplier<JsonNode> resilientCall = CircuitBreaker.decorateSupplier(cb, Retry.decorateSupplier(retry, call));
 
         try {
             return resilientCall.get();
@@ -79,6 +76,8 @@ public class SubgraphClient {
     }
 
     private JsonNode doExecute(String url, String query, Map<String, Object> variables) {
+        log.info("Doing execute for " + url);
+
         Map<String, Object> body = Map.of(
                 "query", query,
                 "variables", variables != null ? variables : Map.of()
@@ -89,7 +88,7 @@ public class SubgraphClient {
             request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
                     .header("Content-Type", "application/json")
-                    .timeout(Duration.ofSeconds(10))
+                    .timeout(Duration.ofSeconds(5))
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
                     .build();
         } catch (Exception e) {
@@ -98,10 +97,14 @@ public class SubgraphClient {
 
         HttpResponse<String> response;
         try {
+            log.info("Send it!");
             response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         } catch (IOException e) {
+            log.info("IO " + e.getMessage());
             throw new SubgraphException(url, e);
         } catch (InterruptedException e) {
+            log.info("Interrupted " + e.getMessage());
+
             Thread.currentThread().interrupt();
             throw new SubgraphException(url, e);
         }
