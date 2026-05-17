@@ -10,3 +10,7 @@ subgraph:
     url: ${SUBGRAPH_SHOWS_URL:http://localhost:8081/graphql}
   reviews:
     url: ${SUBGRAPH_REVIEWS_URL:http://localhost:8082/graphql}
+
+logging:
+  level:
+    io.github.resilience4j: DEBUG
