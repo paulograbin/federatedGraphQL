@@ -1,0 +1,21 @@
+services:
+  shows-service:
+    build: ./shows-service
+    ports:
+      - "8081:8081"
+
+  reviews-service:
+    build: ./reviews-service
+    ports:
+      - "8082:8082"
+
+  gateway:
+    build: ./gateway
+    ports:
+      - "9000:9000"
+    depends_on:
+      - shows-service
+      - reviews-service
+    environment:
+      SUBGRAPH_SHOWS_URL: http://shows-service:8081/graphql
+      SUBGRAPH_REVIEWS_URL: http://reviews-service:8082/graphql
