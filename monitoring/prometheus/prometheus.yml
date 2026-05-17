@@ -1,0 +1,18 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'shows-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['shows-service:8081']
+
+  - job_name: 'reviews-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['reviews-service:8082']
+
+  - job_name: 'gateway'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['gateway:9000']
