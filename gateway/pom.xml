@@ -16,7 +16,7 @@
     <version>1.0.0-SNAPSHOT</version>
 
     <properties>
-        <java.version>17</java.version>
+        <java.version>25</java.version>
         <graphql-java.version>22.3</graphql-java.version>
     </properties>
 
