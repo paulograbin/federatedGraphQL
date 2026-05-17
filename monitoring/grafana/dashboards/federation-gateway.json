@@ -1,0 +1,66 @@
+{
+  "title": "GraphQL Federation Gateway",
+  "uid": "federation-gateway",
+  "editable": true,
+  "panels": [
+    {
+      "title": "Subgraph Request Duration (p95)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(subgraph_request_duration_seconds_bucket[5m])) by (le, subgraph))",
+          "legendFormat": "{{subgraph}}"
+        }
+      ]
+    },
+    {
+      "title": "Request Rate (req/s)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{application=\"federation-gateway\"}[1m]))",
+          "legendFormat": "gateway"
+        },
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{application=\"shows-service\"}[1m]))",
+          "legendFormat": "shows"
+        },
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{application=\"reviews-service\"}[1m]))",
+          "legendFormat": "reviews"
+        }
+      ]
+    },
+    {
+      "title": "Error Rate",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{application=\"federation-gateway\",status=~\"5..\"}[1m]))",
+          "legendFormat": "gateway 5xx"
+        }
+      ]
+    },
+    {
+      "title": "JVM Memory Used (MB)",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "jvm_memory_used_bytes{area=\"heap\"} / 1024 / 1024",
+          "legendFormat": "{{application}} heap"
+        }
+      ]
+    }
+  ],
+  "time": { "from": "now-15m", "to": "now" },
+  "refresh": "10s",
+  "schemaVersion": 39
+}
