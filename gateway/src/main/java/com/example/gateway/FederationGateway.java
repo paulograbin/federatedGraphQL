@@ -146,11 +146,7 @@ public class FederationGateway {
         if (node == null || node.isMissingNode() || node.isNull()) {
             return List.of();
         }
-        try {
-            return objectMapper.convertValue(node, List.class);
-        } catch (Exception e) {
-            return List.of();
-        }
+        return objectMapper.convertValue(node, List.class);
     }
 
     @SuppressWarnings("unchecked")
@@ -158,10 +154,6 @@ public class FederationGateway {
         if (node == null || node.isMissingNode() || node.isNull()) {
             return null;
         }
-        try {
-            return objectMapper.convertValue(node, Map.class);
-        } catch (Exception e) {
-            return null;
-        }
+        return objectMapper.convertValue(node, Map.class);
     }
 }
