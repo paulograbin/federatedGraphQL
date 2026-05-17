@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.5.0</version>
+        <version>3.5.5</version>
         <relativePath/>
     </parent>
 
@@ -24,7 +24,7 @@
             <dependency>
                 <groupId>com.netflix.graphql.dgs</groupId>
                 <artifactId>graphql-dgs-platform-dependencies</artifactId>
-                <version>12.0.0</version>
+                <version>10.6.0</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
