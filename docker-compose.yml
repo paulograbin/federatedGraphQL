@@ -3,6 +3,8 @@ services:
     build: ./shows-service
     ports:
       - "8081:8081"
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8081/actuator/health || exit 1"]
       interval: 5s
@@ -14,6 +16,8 @@ services:
     build: ./reviews-service
     ports:
       - "8082:8082"
+    environment:
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8082/actuator/health || exit 1"]
       interval: 5s
@@ -33,3 +37,38 @@ services:
     environment:
       SUBGRAPH_SHOWS_URL: http://shows-service:8081/graphql
       SUBGRAPH_REVIEWS_URL: http://reviews-service:8082/graphql
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on:
+      shows-service:
+        condition: service_healthy
+      reviews-service:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - prometheus
+      - jaeger
+
+  jaeger:
+    image: jaegertracing/jaeger:2.18.0
+    ports:
+      - "16686:16686"
+      - "4318:4318"
