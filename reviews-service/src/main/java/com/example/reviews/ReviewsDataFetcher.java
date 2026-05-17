@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 
 @DgsComponent
 public class ReviewsDataFetcher {
@@ -47,7 +48,9 @@ public class ReviewsDataFetcher {
 
     @DgsData(parentType = "Show", field = "reviews")
     public List<Review> reviews(DgsDataFetchingEnvironment dfe) throws InterruptedException {
-        log.info("Fetching reviews");
+        long delay = ThreadLocalRandom.current().nextLong(100, 1001);
+        log.info("Fetching reviews (simulated delay: {}ms)", delay);
+        Thread.sleep(delay);
 
         Show show = dfe.getSource();
         return REVIEWS_BY_SHOW.getOrDefault(show.getId(), List.of());
