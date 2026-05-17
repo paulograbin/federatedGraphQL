@@ -14,7 +14,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Component
 public class FederationGateway {
@@ -22,16 +21,13 @@ public class FederationGateway {
     private static final Logger log = LoggerFactory.getLogger(FederationGateway.class);
 
     private final SubgraphClient subgraphClient;
+    private final SubgraphProperties subgraphProperties;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private GraphQL graphQL;
 
-    private final List<SubgraphConfig> subgraphs = List.of(
-            new SubgraphConfig("shows", "http://localhost:8081/graphql"),
-            new SubgraphConfig("reviews", "http://localhost:8082/graphql")
-    );
-
-    public FederationGateway(SubgraphClient subgraphClient) {
+    public FederationGateway(SubgraphClient subgraphClient, SubgraphProperties subgraphProperties) {
         this.subgraphClient = subgraphClient;
+        this.subgraphProperties = subgraphProperties;
     }
 
     @PostConstruct
@@ -83,7 +79,7 @@ public class FederationGateway {
     private DataFetcher<List<Map<String, Object>>> showsFetcher() {
         return env -> {
             JsonNode result = subgraphClient.execute(
-                    "http://localhost:8081/graphql",
+                    subgraphProperties.getShows().getUrl(),
                     "{ shows { id title releaseYear } }",
                     null
             );
@@ -95,7 +91,7 @@ public class FederationGateway {
         return env -> {
             String id = env.getArgument("id");
             JsonNode result = subgraphClient.execute(
-                    "http://localhost:8081/graphql",
+                    subgraphProperties.getShows().getUrl(),
                     "query ($id: ID!) { show(id: $id) { id title releaseYear } }",
                     Map.of("id", id)
             );
@@ -127,7 +123,7 @@ public class FederationGateway {
             );
 
             JsonNode result = subgraphClient.execute(
-                    "http://localhost:8082/graphql",
+                    subgraphProperties.getReviews().getUrl(),
                     query,
                     Map.of("representations", representations)
             );
