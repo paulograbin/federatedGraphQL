@@ -4,12 +4,17 @@ import com.netflix.graphql.dgs.DgsComponent;
 import com.netflix.graphql.dgs.DgsData;
 import com.netflix.graphql.dgs.DgsEntityFetcher;
 import com.netflix.graphql.dgs.DgsDataFetchingEnvironment;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
 
 @DgsComponent
 public class ReviewsDataFetcher {
+
+    private static final Logger log = LoggerFactory.getLogger(ReviewsDataFetcher.class);
+
 
     private static final Map<String, List<Review>> REVIEWS_BY_SHOW = Map.of(
             "1", List.of(
@@ -34,12 +39,16 @@ public class ReviewsDataFetcher {
     );
 
     @DgsEntityFetcher(name = "Show")
-    public Show showEntity(Map<String, Object> values) {
+    public Show showEntity(Map<String, Object> values) throws InterruptedException {
+        log.info("Fetching show entity");
+
         return new Show((String) values.get("id"));
     }
 
     @DgsData(parentType = "Show", field = "reviews")
-    public List<Review> reviews(DgsDataFetchingEnvironment dfe) {
+    public List<Review> reviews(DgsDataFetchingEnvironment dfe) throws InterruptedException {
+        log.info("Fetching reviews");
+
         Show show = dfe.getSource();
         return REVIEWS_BY_SHOW.getOrDefault(show.getId(), List.of());
     }
