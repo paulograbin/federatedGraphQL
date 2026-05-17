@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import graphql.ExecutionInput;
 import graphql.ExecutionResult;
 import graphql.GraphQL;
+import graphql.language.*;
 import graphql.schema.DataFetcher;
 import graphql.schema.GraphQLSchema;
 import graphql.schema.idl.*;
@@ -14,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 @Component
 public class FederationGateway {
@@ -24,6 +26,8 @@ public class FederationGateway {
     private final SubgraphProperties subgraphProperties;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private GraphQL graphQL;
+
+    private final Set<String> FEDERATION_DIRECTIVES = Set.of("key", "extends", "external", "requires", "provides");
 
     public FederationGateway(SubgraphClient subgraphClient, SubgraphProperties subgraphProperties) {
         this.subgraphClient = subgraphClient;
@@ -36,25 +40,16 @@ public class FederationGateway {
     }
 
     public void buildSchema() {
-        String composedSdl = """
-                type Query {
-                    shows: [Show]
-                    show(id: ID!): Show
-                }
+        log.info("Fetching schemas from subgraphs...");
 
-                type Show {
-                    id: ID!
-                    title: String
-                    releaseYear: Int
-                    reviews: [Review]
-                }
+        String showsSdl = subgraphClient.fetchServiceSdl(subgraphProperties.getShows().getUrl());
+        log.info("Fetched shows-service SDL ({} chars)", showsSdl.length());
 
-                type Review {
-                    id: ID!
-                    starRating: Int
-                    comment: String
-                }
-                """;
+        String reviewsSdl = subgraphClient.fetchServiceSdl(subgraphProperties.getReviews().getUrl());
+        log.info("Fetched reviews-service SDL ({} chars)", reviewsSdl.length());
+
+        String composedSdl = composeSchemas(showsSdl, reviewsSdl);
+        log.info("Composed supergraph SDL:\n{}", composedSdl);
 
         SchemaParser schemaParser = new SchemaParser();
         TypeDefinitionRegistry registry = schemaParser.parse(composedSdl);
@@ -73,7 +68,116 @@ public class FederationGateway {
         GraphQLSchema schema = schemaGenerator.makeExecutableSchema(registry, wiring);
         this.graphQL = GraphQL.newGraphQL(schema).build();
 
-        log.info("Federation gateway schema built successfully");
+        log.info("Federation gateway schema built successfully from live subgraphs");
+    }
+
+    private String composeSchemas(String showsSdl, String reviewsSdl) {
+        SchemaParser parser = new SchemaParser();
+        TypeDefinitionRegistry showsRegistry = parser.parse(showsSdl);
+        TypeDefinitionRegistry reviewsRegistry = parser.parse(reviewsSdl);
+
+        Map<String, ObjectTypeDefinition> composedTypes = new LinkedHashMap<>();
+        List<FieldDefinition> queryFields = new ArrayList<>();
+
+        extractTypes(showsRegistry, composedTypes, queryFields);
+        extractTypes(reviewsRegistry, composedTypes, queryFields);
+
+        StringBuilder sdl = new StringBuilder();
+
+        if (!queryFields.isEmpty()) {
+            sdl.append("type Query {\n");
+            for (FieldDefinition field : queryFields) {
+                sdl.append("    ").append(printField(field)).append("\n");
+            }
+            sdl.append("}\n\n");
+        }
+
+        for (Map.Entry<String, ObjectTypeDefinition> entry : composedTypes.entrySet()) {
+            String typeName = entry.getKey();
+            if (typeName.equals("Query")) continue;
+
+            ObjectTypeDefinition typeDef = entry.getValue();
+            sdl.append("type ").append(typeName).append(" {\n");
+            for (FieldDefinition field : typeDef.getFieldDefinitions()) {
+                if (hasDirective(field, "external")) continue;
+                sdl.append("    ").append(printField(field)).append("\n");
+            }
+            sdl.append("}\n\n");
+        }
+
+        return sdl.toString();
+    }
+
+    private void extractTypes(TypeDefinitionRegistry registry,
+                              Map<String, ObjectTypeDefinition> composedTypes,
+                              List<FieldDefinition> queryFields) {
+        for (Map.Entry<String, TypeDefinition> entry : registry.types().entrySet()) {
+            String typeName = entry.getKey();
+            TypeDefinition<?> typeDef = entry.getValue();
+
+            if (typeName.startsWith("_") || typeName.equals("ErrorDetail") || typeName.equals("ErrorType")) {
+                continue;
+            }
+
+            if (!(typeDef instanceof ObjectTypeDefinition objType)) continue;
+
+            if (typeName.equals("Query")) {
+                for (FieldDefinition field : objType.getFieldDefinitions()) {
+                    if (!field.getName().startsWith("_")) {
+                        queryFields.add(field);
+                    }
+                }
+                continue;
+            }
+
+            if (composedTypes.containsKey(typeName)) {
+                ObjectTypeDefinition existing = composedTypes.get(typeName);
+                List<FieldDefinition> mergedFields = new ArrayList<>(existing.getFieldDefinitions());
+                Set<String> existingFieldNames = mergedFields.stream()
+                        .map(FieldDefinition::getName)
+                        .collect(Collectors.toSet());
+                for (FieldDefinition field : objType.getFieldDefinitions()) {
+                    if (!existingFieldNames.contains(field.getName())) {
+                        mergedFields.add(field);
+                    }
+                }
+                composedTypes.put(typeName, existing.transform(b -> b.fieldDefinitions(mergedFields)));
+            } else {
+                composedTypes.put(typeName, objType);
+            }
+        }
+    }
+
+    private boolean hasDirective(FieldDefinition field, String directiveName) {
+        return field.getDirectives().stream()
+                .anyMatch(d -> d.getName().equals(directiveName));
+    }
+
+    private String printField(FieldDefinition field) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(field.getName());
+
+        if (field.getInputValueDefinitions() != null && !field.getInputValueDefinitions().isEmpty()) {
+            sb.append("(");
+            sb.append(field.getInputValueDefinitions().stream()
+                    .map(iv -> iv.getName() + ": " + printType(iv.getType()))
+                    .collect(Collectors.joining(", ")));
+            sb.append(")");
+        }
+
+        sb.append(": ").append(printType(field.getType()));
+        return sb.toString();
+    }
+
+    private String printType(Type<?> type) {
+        if (type instanceof NonNullType nnt) {
+            return printType(nnt.getType()) + "!";
+        } else if (type instanceof ListType lt) {
+            return "[" + printType(lt.getType()) + "]";
+        } else if (type instanceof TypeName tn) {
+            return tn.getName();
+        }
+        return "String";
     }
 
     private DataFetcher<List<Map<String, Object>>> showsFetcher() {
