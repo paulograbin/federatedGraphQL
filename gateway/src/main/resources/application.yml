@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: federation-gateway
+  threads:
+    virtual:
+      enabled: true
 
 subgraph:
   shows:
@@ -15,7 +18,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,prometheus,metrics
+        include: health,prometheus,metrics,env,configprops
   metrics:
     tags:
       application: federation-gateway
