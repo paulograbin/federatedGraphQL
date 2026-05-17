@@ -8,6 +8,11 @@ import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
 import io.github.resilience4j.retry.RetryRegistry;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -34,12 +39,18 @@ public class SubgraphClient {
             .build();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    private final MeterRegistry meterRegistry;
+    private final Tracer tracer;
+    private final Propagator propagator;
     private final CircuitBreakerRegistry circuitBreakerRegistry;
     private final RetryRegistry retryRegistry;
     private final ConcurrentHashMap<String, CircuitBreaker> circuitBreakers = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Retry> retries = new ConcurrentHashMap<>();
 
-    public SubgraphClient() {
+    public SubgraphClient(MeterRegistry meterRegistry, Tracer tracer, Propagator propagator) {
+        this.meterRegistry = meterRegistry;
+        this.tracer = tracer;
+        this.propagator = propagator;
         CircuitBreakerConfig cbConfig = CircuitBreakerConfig.custom()
                 .failureRateThreshold(50)
                 .waitDurationInOpenState(Duration.ofSeconds(10))
@@ -63,20 +74,42 @@ public class SubgraphClient {
         CircuitBreaker cb = circuitBreakers.computeIfAbsent(subgraphName, circuitBreakerRegistry::circuitBreaker);
         Retry retry = retries.computeIfAbsent(subgraphName, retryRegistry::retry);
 
+        Timer timer = Timer.builder("subgraph.request.duration")
+                .tag("subgraph", subgraphName)
+                .description("Time spent calling subgraphs")
+                .register(meterRegistry);
+
         Supplier<JsonNode> call = () -> doExecute(url, query, variables);
         Supplier<JsonNode> resilientCall = CircuitBreaker.decorateSupplier(cb, Retry.decorateSupplier(retry, call));
 
-        try {
-            return resilientCall.get();
-        } catch (SubgraphException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new SubgraphException(url, e);
-        }
+        return timer.record(() -> {
+            try {
+                return resilientCall.get();
+            } catch (SubgraphException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new SubgraphException(url, e);
+            }
+        });
     }
 
     private JsonNode doExecute(String url, String query, Map<String, Object> variables) {
-        log.info("Doing execute for " + url);
+        String subgraphName = extractSubgraphName(url);
+        Span span = tracer.nextSpan().name("subgraph-call " + subgraphName).start();
+
+        try (Tracer.SpanInScope ws = tracer.withSpan(span)) {
+            span.tag("subgraph.url", url);
+            return doExecuteInner(url, query, variables);
+        } catch (Exception e) {
+            span.error(e);
+            throw e;
+        } finally {
+            span.end();
+        }
+    }
+
+    private JsonNode doExecuteInner(String url, String query, Map<String, Object> variables) {
+        log.info("Doing execute for {}", url);
 
         Map<String, Object> body = Map.of(
                 "query", query,
@@ -85,12 +118,16 @@ public class SubgraphClient {
 
         HttpRequest request;
         try {
-            request = HttpRequest.newBuilder()
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                     .uri(URI.create(url))
                     .header("Content-Type", "application/json")
                     .timeout(Duration.ofSeconds(5))
-                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
-                    .build();
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)));
+
+            propagator.inject(tracer.currentTraceContext().context(),
+                    requestBuilder, HttpRequest.Builder::header);
+
+            request = requestBuilder.build();
         } catch (Exception e) {
             throw new SubgraphException(url, e);
         }

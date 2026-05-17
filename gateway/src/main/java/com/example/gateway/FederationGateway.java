@@ -10,11 +10,15 @@ import graphql.schema.DataFetcher;
 import graphql.schema.GraphQLSchema;
 import graphql.schema.idl.*;
 import jakarta.annotation.PostConstruct;
+import org.dataloader.BatchLoader;
+import org.dataloader.DataLoader;
+import org.dataloader.DataLoaderRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 @Component
@@ -203,10 +207,18 @@ public class FederationGateway {
         };
     }
 
-    private DataFetcher<List<Map<String, Object>>> reviewsFetcher() {
+    private DataFetcher<CompletableFuture<List<Map<String, Object>>>> reviewsFetcher() {
         return env -> {
             Map<String, Object> show = env.getSource();
             String showId = (String) show.get("id");
+            DataLoader<String, List<Map<String, Object>>> loader = env.getDataLoader("reviews");
+            return loader.load(showId);
+        };
+    }
+
+    private BatchLoader<String, List<Map<String, Object>>> reviewsBatchLoader() {
+        return showIds -> {
+            log.info("Batch loading reviews for {} shows: {}", showIds.size(), showIds);
 
             String query = """
                     query ($representations: [_Any!]!) {
@@ -222,9 +234,9 @@ public class FederationGateway {
                     }
                     """;
 
-            List<Map<String, Object>> representations = List.of(
-                    Map.of("__typename", "Show", "id", showId)
-            );
+            List<Map<String, Object>> representations = showIds.stream()
+                    .map(id -> Map.<String, Object>of("__typename", "Show", "id", id))
+                    .toList();
 
             JsonNode result = subgraphClient.execute(
                     subgraphProperties.getReviews().getUrl(),
@@ -232,15 +244,24 @@ public class FederationGateway {
                     Map.of("representations", representations)
             );
 
-            JsonNode entity = result.at("/data/_entities/0/reviews");
-            return parseList(entity);
+            JsonNode entities = result.at("/data/_entities");
+            List<List<Map<String, Object>>> results = new ArrayList<>();
+            for (int i = 0; i < showIds.size(); i++) {
+                JsonNode reviews = entities.path(i).path("reviews");
+                results.add(parseList(reviews));
+            }
+            return CompletableFuture.completedFuture(results);
         };
     }
 
     public ExecutionResult execute(String query, Map<String, Object> variables) {
+        DataLoaderRegistry registry = new DataLoaderRegistry();
+        registry.register("reviews", DataLoader.newDataLoader(reviewsBatchLoader()));
+
         ExecutionInput input = ExecutionInput.newExecutionInput()
                 .query(query)
                 .variables(variables != null ? variables : Map.of())
+                .dataLoaderRegistry(registry)
                 .build();
         return graphQL.execute(input);
     }
